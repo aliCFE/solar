@@ -2,6 +2,8 @@ FROM node:20-bookworm
 
 WORKDIR /app
 
+ENV DATABASE_URL=file:/app/data/prod.db
+
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
 COPY prisma.config.ts ./
