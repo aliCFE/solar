@@ -17,4 +17,4 @@ ENV DATABASE_URL=file:/app/data/prod.db
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "mkdir -p /app/data && npx prisma db push --skip-generate && npm start"]
+CMD ["sh", "-c", "mkdir -p /app/data && npx prisma db push && npm start"]
