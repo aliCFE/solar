@@ -1,0 +1,140 @@
+datasource db {
+  provider = "sqlite"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// status: "pending" | "approved" | "rejected" (SQLite has no native enum support in Prisma,
+// so this is validated in application code — see lib/companyStatus.ts)
+model Company {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  email        String   @unique
+  passwordHash String
+  phone        String?
+  city         String?
+  description  String?
+  website      String?
+  status       String   @default("pending")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  packages SolarPackage[]
+  leads    Lead[]
+  coupons  Coupon[]
+
+  @@index([status])
+}
+
+// packageType: "install" | "service" (SQLite has no native enum support in Prisma,
+// see lib/packageType.ts). Service packages (post-sale maintenance, cleaning,
+// warranty service, etc.) don't carry solar sizing specs — serviceFrequency
+// describes their cadence instead (one-time, monthly, yearly, ...).
+model SolarPackage {
+  id                   String   @id @default(cuid())
+  companyId            String
+  company              Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  packageType          String   @default("install")
+  title                String
+  description          String?
+  systemSizeKW         Float?
+  panelBrand           String?
+  panelWattage         Int?
+  numberOfPanels       Int?
+  inverterBrand        String?
+  inverterSizeKW       Float?
+  batteryBrand         String?
+  batteryType          String?
+  batteryCapacityKWh   Float?
+  priceUSD             Float?
+  warrantyYears        Int?
+  installationIncluded Boolean  @default(false)
+  serviceFrequency     String?
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  media Media[]
+  leads Lead[]
+
+  @@index([companyId])
+}
+
+// Admin-defined discount code tied to one company. Informational — customers
+// see it on the company's public page and can mention it when requesting an
+// offer (captured on the Lead); the platform brokers the deal manually, so
+// there's no checkout to apply it automatically against.
+model Coupon {
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code            String   @unique
+  discountPercent Int
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([companyId])
+}
+
+// type: "image" | "video-url" (SQLite has no native enum support in Prisma)
+model Media {
+  id        String   @id @default(cuid())
+  packageId String
+  package   SolarPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  type      String
+  url       String
+  caption   String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([packageId])
+}
+
+// A customer asking the platform to connect them with a supplier for a specific
+// package. Deliberately holds no direct company contact info on the customer
+// side — the platform brokers the introduction, never a raw phone/email swap.
+// status: "new" | "contacted" | "quoted" | "won" | "lost"
+model Lead {
+  id                 String   @id @default(cuid())
+  companyId          String
+  company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  packageId          String?
+  package            SolarPackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  customerName       String
+  customerPhone      String
+  customerCity       String?
+  assessmentSnapshot String?
+  roofPlanUrl        String?
+  couponCode         String?
+  status             String   @default("new")
+  commissionNote     String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([status])
+}
+
+// A candidate company found through research (manual or web search) that
+// isn't a registered platform account yet — a private outreach/CRM list for
+// the platform owner, never shown to customers or linked companies.
+// status: "new" | "contacted" | "negotiating" | "converted" | "declined"
+model DiscoveredCompany {
+  id               String   @id @default(cuid())
+  name             String
+  phone            String?
+  website          String?
+  city             String?
+  source           String   @default("manual")
+  status           String   @default("new")
+  notes            String?
+  linkedCompanyId  String?
+  discoveredAt     DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([status])
+}

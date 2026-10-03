@@ -1,0 +1,406 @@
+<title>Solar Platform Report</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #f4f6f5;
+    --surface: #ffffff;
+    --surface-sunken: #eef1f0;
+    --border: #dde3e1;
+    --text: #142420;
+    --text-muted: #59685f;
+    --text-faint: #8a978f;
+    --gold: #c98a1f;
+    --gold-soft: #f6e6c8;
+    --teal: #0e6e69;
+    --teal-soft: #dcedea;
+    --good: #2f7a4f;
+    --good-soft: #e3f0e7;
+    --warn: #b8681f;
+    --warn-soft: #f7e9d6;
+    --shadow: 0 1px 2px rgba(20, 36, 32, 0.04), 0 8px 24px rgba(20, 36, 32, 0.05);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #101815;
+      --surface: #17211d;
+      --surface-sunken: #1d2925;
+      --border: #2b3833;
+      --text: #eaf1ee;
+      --text-muted: #a3b3ac;
+      --text-faint: #6d7c75;
+      --gold: #e2a94b;
+      --gold-soft: #3a2e14;
+      --teal: #4fb3ac;
+      --teal-soft: #163330;
+      --good: #6ec895;
+      --good-soft: #163326;
+      --warn: #e0a15c;
+      --warn-soft: #3a2c15;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #101815;
+    --surface: #17211d;
+    --surface-sunken: #1d2925;
+    --border: #2b3833;
+    --text: #eaf1ee;
+    --text-muted: #a3b3ac;
+    --text-faint: #6d7c75;
+    --gold: #e2a94b;
+    --gold-soft: #3a2e14;
+    --teal: #4fb3ac;
+    --teal-soft: #163330;
+    --good: #6ec895;
+    --good-soft: #163326;
+    --warn: #e0a15c;
+    --warn-soft: #3a2c15;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    line-height: 1.55;
+  }
+
+  .page {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 56px 24px 80px;
+  }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--teal);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .eyebrow::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--gold);
+    display: inline-block;
+  }
+
+  h1 {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 600;
+    font-size: 40px;
+    line-height: 1.08;
+    letter-spacing: -0.01em;
+    margin: 10px 0 6px;
+    text-wrap: balance;
+  }
+
+  .subtitle {
+    font-size: 17px;
+    color: var(--text-muted);
+    max-width: 46ch;
+    text-wrap: balance;
+  }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 22px;
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--text-faint);
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+  }
+
+  .meta-row b { color: var(--text-muted); font-weight: 500; }
+
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 4px 10px 4px 8px;
+    border-radius: 100px;
+    background: var(--good-soft);
+    color: var(--good);
+  }
+  .status-pill::before { content: "●"; font-size: 8px; }
+
+  /* stat strip */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin: 34px 0;
+  }
+  .stat {
+    background: var(--surface);
+    padding: 18px 16px;
+  }
+  .stat .n {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 26px;
+    font-weight: 500;
+    color: var(--teal);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .l {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    margin-top: 3px;
+  }
+
+  /* pipeline */
+  .pipeline {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin: 34px 0 40px;
+  }
+  .pipeline .node {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 12px;
+    text-align: center;
+  }
+  .pipeline .node .k {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--gold);
+    letter-spacing: 0.04em;
+  }
+  .pipeline .node .t {
+    font-size: 13.5px;
+    font-weight: 500;
+    margin-top: 4px;
+  }
+  .pipeline .arrow {
+    flex: 0 0 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-faint);
+    font-size: 16px;
+  }
+
+  section { margin-top: 40px; }
+
+  h2 {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 600;
+    font-size: 21px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin: 0 0 14px;
+  }
+  h2 .tag {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-faint);
+  }
+
+  .feature {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    box-shadow: var(--shadow);
+  }
+  .feature + .feature { margin-top: 12px; }
+
+  .feature-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+  .feature-head .name {
+    font-weight: 600;
+    font-size: 15.5px;
+  }
+  .badge {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 100px;
+    white-space: nowrap;
+  }
+  .badge.live { background: var(--good-soft); color: var(--good); }
+  .badge.needs-key { background: var(--warn-soft); color: var(--warn); }
+
+  .feature p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 14.5px;
+  }
+
+  .open-items {
+    background: var(--surface-sunken);
+    border-radius: 12px;
+    padding: 20px 22px;
+  }
+  .open-items ul { margin: 0; padding-inline-start: 20px; }
+  .open-items li { margin-bottom: 10px; font-size: 14.5px; }
+  .open-items li:last-child { margin-bottom: 0; }
+  .open-items b { color: var(--text); }
+
+  .credentials {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 13px;
+    background: var(--surface-sunken);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-top: 10px;
+    color: var(--text-muted);
+    overflow-x: auto;
+  }
+  .credentials div + div { margin-top: 3px; }
+  .credentials b { color: var(--text); font-weight: 500; }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-size: 12.5px;
+    color: var(--text-faint);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  @media (max-width: 620px) {
+    h1 { font-size: 30px; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .pipeline { flex-wrap: wrap; }
+    .pipeline .arrow { display: none; }
+    .pipeline .node { flex: 1 1 40%; }
+  }
+</style>
+
+<div class="page">
+
+  <div class="eyebrow">Internal build report</div>
+  <h1>Solar Assessment &amp; Marketplace Platform</h1>
+  <p class="subtitle">AI-assisted solar sizing for customers, paired with a supplier marketplace and approval workflow.</p>
+
+  <div class="meta-row">
+    <span><b>Date</b> Sept 6, 2026</span>
+    <span><b>Stage</b> Working MVP, local environment</span>
+    <span class="status-pill">Ready for review</span>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">6</div><div class="l">features shipped</div></div>
+    <div class="stat"><div class="n">3</div><div class="l">demo suppliers seeded</div></div>
+    <div class="stat"><div class="n">15</div><div class="l">sample packages ($2.8k–$39k)</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">known bugs open</div></div>
+  </div>
+
+  <div class="pipeline">
+    <div class="node"><div class="k">01</div><div class="t">Customer input</div></div>
+    <div class="arrow">→</div>
+    <div class="node"><div class="k">02</div><div class="t">Sizing engine</div></div>
+    <div class="arrow">→</div>
+    <div class="node"><div class="k">03</div><div class="t">Supplier matching</div></div>
+    <div class="arrow">→</div>
+    <div class="node"><div class="k">04</div><div class="t">Admin approval</div></div>
+  </div>
+
+  <section>
+    <h2>What's built <span class="tag">— 6 areas</span></h2>
+
+    <div class="feature">
+      <div class="feature-head">
+        <span class="name">1. Assessment engine</span>
+        <span class="badge live">Live, no setup needed</span>
+      </div>
+      <p>Customer enters home size, monthly electricity use, and location. The system pulls real solar-radiation data for that exact location from NASA's public climate API and sizes the system against the <em>worst</em> month of the year, so it holds up in winter too — not just an optimistic summer estimate. Output: panel count, inverter size, battery capacity, and a cost range.</p>
+    </div>
+
+    <div class="feature">
+      <div class="feature-head">
+        <span class="name">2. AI quote reader</span>
+        <span class="badge needs-key">Needs an Anthropic API key</span>
+      </div>
+      <p>Customer uploads a supplier's quote as a photo or PDF. Claude reads it, pulls out the specs and price, and scores it against the customer's own calculated need — flagging if it's oversized, undersized, or overpriced. Multiple quotes can be compared side by side with a ranked recommendation.</p>
+    </div>
+
+    <div class="feature">
+      <div class="feature-head">
+        <span class="name">3. Supplier marketplace</span>
+        <span class="badge live">Live</span>
+      </div>
+      <p>Companies can register, then manage their own catalog — package specs and prices — from a private dashboard. Approved suppliers get a public profile page, browsable in a company directory.</p>
+    </div>
+
+    <div class="feature">
+      <div class="feature-head">
+        <span class="name">4. Smart matching</span>
+        <span class="badge live">Live, no setup needed</span>
+      </div>
+      <p>Every customer assessment is automatically scored against all approved suppliers' current packages — system size, battery fit, price versus estimate, warranty — and ranked, with the closest match to the customer's actual need labelled as "best offer" and the reasoning shown.</p>
+    </div>
+
+    <div class="feature">
+      <div class="feature-head">
+        <span class="name">5. Admin approval console</span>
+        <span class="badge live">Live</span>
+      </div>
+      <p>A separate owner login for reviewing new supplier sign-ups before they go public — approve, reject, or hold for review. Nothing a company publishes is visible to customers until it's approved.</p>
+    </div>
+
+    <div class="feature">
+      <div class="feature-head">
+        <span class="name">6. Demo dataset</span>
+        <span class="badge live">Seeded</span>
+      </div>
+      <p>Three sample suppliers, five packages each, spanning economy (~$2.8k) to premium commercial (~$39k) tiers — enough to demo the full flow end to end today.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Needs a decision <span class="tag">— before a public launch</span></h2>
+    <div class="open-items">
+      <ul>
+        <li><b>Anthropic API key</b> — required only for the quote-reader and quote-comparison features. Sizing and matching work fully without it.</li>
+        <li><b>Admin password is a placeholder</b> — must be replaced before this goes anywhere public.</li>
+        <li><b>Not deployed yet</b> — currently runs on a local machine only; needs hosting to be reachable outside the team.</li>
+        <li><b>No payment or lead-handoff flow yet</b> — a customer can find the best supplier match but there's no built-in way to request a proposal or pay through the platform. Out of scope for this round.</li>
+      </ul>
+    </div>
+    <div class="credentials">
+      <div><b>Admin panel</b> — /admin — change ADMIN_USERNAME / ADMIN_PASSWORD before launch</div>
+      <div><b>Demo supplier login</b> — info@goldensun-demo.test / demo12345</div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Solar Assessment &amp; Marketplace Platform — build report</span>
+    <span>Prepared for internal review</span>
+  </footer>
+
+</div>

@@ -1,0 +1,21 @@
+services:
+  solar:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env.local
+    environment:
+      DATABASE_URL: file:/app/data/prod.db
+    ports:
+      - "3000:3000"
+    volumes:
+      - solar-data:/app/data
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.solar.rule=Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)
+      - traefik.http.routers.solar.entrypoints=websecure
+      - traefik.http.routers.solar.tls.certresolver=letsencrypt
+      - traefik.http.services.solar.loadbalancer.server.port=3000
+
+volumes:
+  solar-data:
