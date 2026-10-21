@@ -43,20 +43,24 @@ export default function AssessmentForm({ onSubmit, isLoading, result }: Props) {
   const [uploadPercent, setUploadPercent] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [planReading, setPlanReading] = useState<RoofPlanReading | null>(null);
-  const [analyzingPlan, setAnalyzingPlan] = useState(false);
+  const [resolvingPlan, setResolvingPlan] = useState(false);
+  const [resolvingPercent, setResolvingPercent] = useState(0);
   const [planReadError, setPlanReadError] = useState<string | null>(null);
   const [areaIsManualOverride, setAreaIsManualOverride] = useState(false);
+  // Which uploaded file the plan reading applies to — lets "احسب احتياجي"
+  // read the plan once (on first click) and just proceed on later clicks
+  // instead of re-spending an AI call every time the button is pressed.
+  const [planReadForUrl, setPlanReadForUrl] = useState<string | null>(null);
 
-  // Uploading stores the file, then the plan is read right away in its own
-  // dedicated call — separate from system sizing — so the customer sees and
-  // can correct the extracted area BEFORE it ever reaches the sizing
-  // calculation. A bad vision read this way shows up as "please confirm",
-  // never as a silently wrong system size.
+  // Uploading only stores the file — no AI call here. Reading the plan and
+  // sizing the system both happen together when the customer presses "احسب
+  // احتياجي", one step at a time, so there's a single wait instead of two.
   async function handleRoofPlanUpload(file: File | undefined) {
     if (!file) return;
     setError(null);
     setPlanReading(null);
     setPlanReadError(null);
+    setPlanReadForUrl(null);
     setAreaIsManualOverride(false);
     setUploadingPlan(true);
     setUploadPercent(8);
@@ -75,33 +79,13 @@ export default function AssessmentForm({ onSubmit, isLoading, result }: Props) {
       setRoofPlanUrl(data.url);
       setRoofPlanFileName(file.name);
       setUploadPercent(100);
-      clearInterval(tick);
-      setUploadingPlan(false);
-      setTimeout(() => setUploadPercent(0), 500);
-
-      setAnalyzingPlan(true);
-      try {
-        const readRes = await fetch("/api/assess/read-plan", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ roofPlanUrl: data.url }),
-        });
-        const reading = await readRes.json();
-        if (!readRes.ok) throw new Error(reading.error || "فشلت قراءة الخارطة");
-        setPlanReading(reading as RoofPlanReading);
-        if (reading.resolvedAreaSqm != null) {
-          setHomeAreaSqm(String(reading.resolvedAreaSqm));
-        }
-      } catch (err) {
-        setPlanReadError(err instanceof Error ? err.message : "فشلت قراءة الخارطة");
-      } finally {
-        setAnalyzingPlan(false);
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "فشل رفع المخطط");
       setUploadPercent(0);
+    } finally {
       clearInterval(tick);
       setUploadingPlan(false);
+      setTimeout(() => setUploadPercent(0), 500);
     }
   }
 
@@ -125,11 +109,8 @@ export default function AssessmentForm({ onSubmit, isLoading, result }: Props) {
     );
   }
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-
-    const area = Number(homeAreaSqm);
+  function proceedToCalculate(areaOverride: number | null, reading: RoofPlanReading | null) {
+    const area = areaOverride ?? Number(homeAreaSqm);
     const consumption = Number(monthlyConsumptionKWh);
     const autonomy = Number(batteryAutonomyDays);
 
@@ -154,11 +135,10 @@ export default function AssessmentForm({ onSubmit, isLoading, result }: Props) {
       locationLabel = city.label;
     }
 
-    // Only trust the plan-derived source/dimensions when the area field still
+    // Only trust the plan-derived source/dimensions when the area still
     // matches what the plan reading resolved — if the customer typed over it,
     // this is a manual number and must not be reported as plan-confirmed.
-    const usingPlanReading =
-      !areaIsManualOverride && planReading != null && planReading.resolvedAreaSqm === area;
+    const usingPlanReading = !areaIsManualOverride && reading != null && reading.resolvedAreaSqm === area;
 
     onSubmit({
       homeAreaSqm: area,
@@ -170,10 +150,59 @@ export default function AssessmentForm({ onSubmit, isLoading, result }: Props) {
       preferredBatteryType,
       roofOrientation,
       roofPlanUrl,
-      roofWidthM: usingPlanReading ? planReading.outerWidthM : null,
-      roofLengthM: usingPlanReading ? planReading.outerLengthM : null,
-      areaSource: usingPlanReading ? (planReading.areaSource as "explicit" | "geometric") : "manual",
+      roofWidthM: usingPlanReading ? reading.outerWidthM : null,
+      roofLengthM: usingPlanReading ? reading.outerLengthM : null,
+      areaSource: usingPlanReading ? (reading.areaSource as "explicit" | "geometric") : "manual",
     });
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+
+    const consumption = Number(monthlyConsumptionKWh);
+    if (!consumption || consumption <= 0) return setError("أدخل استهلاك كهربائي صحيح");
+
+    // First press with an unread plan attached: read it first, fill the area
+    // field, and either continue straight to sizing (confident read) or stop
+    // here so the customer can review/correct the number (uncertain read) —
+    // pressing the button again then just proceeds with whatever's in the
+    // field, without spending a second AI call re-reading the same image.
+    if (roofPlanUrl && roofPlanUrl !== planReadForUrl) {
+      setResolvingPlan(true);
+      setPlanReadError(null);
+      setResolvingPercent(6);
+      const tick = setInterval(() => {
+        setResolvingPercent((p) => (p >= 92 ? 92 : Math.min(92, p + Math.max(0.5, (92 - p) * 0.05))));
+      }, 200);
+
+      try {
+        const readRes = await fetch("/api/assess/read-plan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roofPlanUrl }),
+        });
+        const reading = await readRes.json();
+        if (!readRes.ok) throw new Error(reading.error || "فشلت قراءة الخارطة");
+
+        setPlanReading(reading as RoofPlanReading);
+        setPlanReadForUrl(roofPlanUrl);
+        if (reading.resolvedAreaSqm != null) setHomeAreaSqm(String(reading.resolvedAreaSqm));
+
+        clearInterval(tick);
+        setResolvingPlan(false);
+
+        if (reading.needsUserConfirmation) return; // stop — let the customer review the number
+        proceedToCalculate(reading.resolvedAreaSqm, reading as RoofPlanReading);
+      } catch (err) {
+        clearInterval(tick);
+        setResolvingPlan(false);
+        setPlanReadError(err instanceof Error ? err.message : "فشلت قراءة الخارطة");
+      }
+      return;
+    }
+
+    proceedToCalculate(null, planReading);
   }
 
   return (
@@ -243,7 +272,7 @@ export default function AssessmentForm({ onSubmit, isLoading, result }: Props) {
               setAreaIsManualOverride(true);
             }}
           />
-          {!planReading && !analyzingPlan && !areaIsManualOverride && (
+          {!planReading && !resolvingPlan && !areaIsManualOverride && (
             <p className="mt-1 text-xs text-[var(--color-text-muted)]">
               رقم تقريبي — لدقة أعلى ارفع خارطة البيت بالحقل المقابل
             </p>
@@ -285,26 +314,30 @@ export default function AssessmentForm({ onSubmit, isLoading, result }: Props) {
             type="file"
             accept="image/jpeg,image/png,image/webp"
             onChange={(e) => handleRoofPlanUpload(e.target.files?.[0])}
-            disabled={uploadingPlan || analyzingPlan}
+            disabled={uploadingPlan || resolvingPlan}
             className="block w-full text-sm text-[var(--color-text-muted)] file:ml-3 file:rounded-lg file:border-0 file:bg-[var(--color-surface-2)] file:px-3 file:py-2 file:text-[var(--color-text)]"
           />
           {uploadPercent > 0 && <UploadProgressBar percent={uploadPercent} label="جاري رفع الخارطة..." />}
-          {analyzingPlan && <UploadProgressBar percent={60} label="جاري قراءة الخارطة..." />}
-          {!roofPlanFileName && !analyzingPlan && (
+          {roofPlanFileName && !uploadingPlan && uploadPercent === 0 && !resolvingPlan && !planReading && (
+            <p className="mt-1 text-xs text-[var(--color-accent-2)]">✓ تم رفع: {roofPlanFileName}</p>
+          )}
+          {!roofPlanFileName && (
             <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-              نقرأ الأبعاد المكتوبة على الخارطة فور الرفع، وتقدر تراجع المساحة وتعدّلها قبل الحساب
+              نقرأ الأبعاد المكتوبة على الخارطة وقت تضغط "احسب احتياجي"، وتقدر تراجع المساحة وتعدّلها قبل الحساب
             </p>
           )}
         </div>
       </div>
 
-      {planReadError && !analyzingPlan && (
+      {resolvingPlan && <UploadProgressBar percent={resolvingPercent} label="جاري قراءة الخارطة..." />}
+
+      {planReadError && !resolvingPlan && (
         <p className="rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 p-3 text-xs text-[var(--color-danger)]">
-          {planReadError} — أدخل مساحة السطح يدوياً بالحقل أعلاه.
+          {planReadError} — أدخل مساحة السطح يدوياً بالحقل أعلاه، أو اضغط "احسب احتياجي" مرة ثانية للمحاولة من جديد.
         </p>
       )}
 
-      {planReading && !analyzingPlan && !areaIsManualOverride && (
+      {planReading && !resolvingPlan && !areaIsManualOverride && (
         <div
           className={`rounded-lg border p-3 text-xs ${
             planReading.needsUserConfirmation
@@ -357,10 +390,10 @@ export default function AssessmentForm({ onSubmit, isLoading, result }: Props) {
 
       <button
         type="submit"
-        disabled={isLoading || uploadingPlan}
+        disabled={isLoading || uploadingPlan || resolvingPlan}
         className="w-full rounded-lg bg-[var(--color-accent)] px-4 py-3 font-semibold text-[#1a1200] transition hover:brightness-110 disabled:opacity-60"
       >
-        {isLoading ? "جاري الحساب..." : "احسب احتياجي من الطاقة الشمسية"}
+        {resolvingPlan ? "جاري قراءة الخارطة..." : isLoading ? "جاري الحساب..." : "احسب احتياجي من الطاقة الشمسية"}
       </button>
     </form>
   );
