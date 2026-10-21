@@ -3,7 +3,6 @@
 import { useState } from "react";
 import AssessmentForm from "@/components/AssessmentForm";
 import ResultsCard from "@/components/ResultsCard";
-import PanelLayoutSection from "@/components/PanelLayoutSection";
 import MarketplaceMatches from "@/components/MarketplaceMatches";
 import QuoteUploader from "@/components/QuoteUploader";
 import ComparisonView from "@/components/ComparisonView";
@@ -12,15 +11,6 @@ import UploadProgressBar from "@/components/UploadProgressBar";
 import type { AssessmentInput, AssessmentResult, QuoteAnalysis } from "@/types";
 
 const CALC_STAGES = [
-  "جاري جلب بيانات الإشعاع الشمسي لموقعك...",
-  "جاري تحليل احتياجك بالذكاء الاصطناعي...",
-  "جاري تحديد حجم النظام وعدد الألواح...",
-  "جاري تحديد الانفيرتر والبطارية...",
-  "جاري تقدير الكلفة النهائية...",
-];
-
-const CALC_STAGES_WITH_PLAN = [
-  "جاري قراءة خارطة البيت وقياس الأبعاد...",
   "جاري جلب بيانات الإشعاع الشمسي لموقعك...",
   "جاري تحليل احتياجك بالذكاء الاصطناعي...",
   "جاري تحديد حجم النظام وعدد الألواح...",
@@ -37,7 +27,7 @@ export default function Home() {
   const [calcLabel, setCalcLabel] = useState(CALC_STAGES[0]);
 
   async function handleAssess(input: AssessmentInput) {
-    const stages = input.roofPlanUrl ? CALC_STAGES_WITH_PLAN : CALC_STAGES;
+    const stages = CALC_STAGES;
 
     setLoading(true);
     setError(null);
@@ -114,8 +104,6 @@ export default function Home() {
         </div>
 
         {result && <ResultsCard result={result} />}
-
-        {result && <PanelLayoutSection result={result} />}
 
         {result && <MarketplaceMatches requirement={result} />}
 

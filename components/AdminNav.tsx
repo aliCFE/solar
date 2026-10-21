@@ -7,6 +7,7 @@ const TABS = [
   { href: "/admin", label: "الشركات المسجلة" },
   { href: "/admin/leads", label: "طلبات الزباين" },
   { href: "/admin/discovered", label: "الشركات المكتشفة" },
+  { href: "/admin/prices", label: "أسعار المكونات" },
 ];
 
 export default function AdminNav() {

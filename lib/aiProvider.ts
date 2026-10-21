@@ -85,6 +85,22 @@ async function callAnthropic({ system, userText, image, maxTokens = 1536 }: AiCa
   return textBlock.text;
 }
 
+// Kimi's concurrency cap is per account, so it also applies across separate
+// server processes sharing the same key (e.g. local dev and a deployed copy).
+// The 429 says to retry shortly — wait for the slot instead of failing.
+async function createWithRetryOnConcurrencyLimit<T>(call: () => Promise<T>): Promise<T> {
+  const maxAttempts = 60;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await call();
+    } catch (err) {
+      const status = (err as { status?: number })?.status;
+      if (status !== 429 || attempt >= maxAttempts) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+}
+
 async function callKimi({ system, userText, image, maxTokens = 1536 }: AiCallOptions): Promise<string> {
   if (image?.mediaType === "application/pdf") {
     throw new Error("Kimi ما يدعم ملفات PDF مباشرة بهذا الإعداد — ارفع صورة (JPG/PNG/WebP) بدل PDF.");
@@ -99,14 +115,16 @@ async function callKimi({ system, userText, image, maxTokens = 1536 }: AiCallOpt
   }
   content.push({ type: "text", text: userText });
 
-  const completion = await client.chat.completions.create({
-    model,
-    max_tokens: maxTokens,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content },
-    ],
-  });
+  const completion = await createWithRetryOnConcurrencyLimit(() =>
+    client.chat.completions.create({
+      model,
+      max_tokens: maxTokens,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content },
+      ],
+    })
+  );
 
   const text = completion.choices[0]?.message?.content;
   if (!text) throw new Error("لم يرجع النموذج نص");

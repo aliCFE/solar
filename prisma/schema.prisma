@@ -80,6 +80,31 @@ model Coupon {
   @@index([companyId])
 }
 
+// Admin-entered, source-tracked component price used to anchor cost
+// estimates to real data instead of an AI model's unverified general
+// knowledge. category: "panel" | "battery" | "inverter" — specValue is the
+// matching spec for that category (watts for a panel, kWh for a battery,
+// kW for an inverter). A price with no real source behind it doesn't belong
+// here — it belongs in the generic fallback range, clearly labeled as such.
+model ProductPrice {
+  id                   String   @id @default(cuid())
+  category             String
+  brand                String?
+  model                String?
+  specValue            Float
+  priceUSD             Float
+  includesInstallation Boolean  @default(false)
+  source               String
+  sourceDate           DateTime
+  city                 String?
+  isActive             Boolean  @default(true)
+  notes                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([category])
+}
+
 // type: "image" | "video-url" (SQLite has no native enum support in Prisma)
 model Media {
   id        String   @id @default(cuid())

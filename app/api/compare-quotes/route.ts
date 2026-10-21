@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
     const result = await compareQuotes(parsed.data.analyses, parsed.data.requirement);
     return NextResponse.json(result);
   } catch (err) {
+    console.error("[/api/compare-quotes] failed:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "فشلت المقارنة" },
       { status: 500 }

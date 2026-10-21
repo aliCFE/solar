@@ -4,7 +4,7 @@ import { runAiAssessment } from "@/lib/aiSolarCalc";
 import { runAssessment } from "@/lib/solarCalc";
 import { getActiveProvider } from "@/lib/aiProvider";
 import { rateLimitOrNull } from "@/lib/rateLimit";
-import { readUploadedFile } from "@/lib/uploads";
+import { findSystemInconsistency } from "@/lib/systemValidation";
 
 const inputSchema = z.object({
   homeAreaSqm: z.number().positive(),
@@ -18,6 +18,7 @@ const inputSchema = z.object({
   roofPlanUrl: z.string().trim().optional().nullable(),
   roofWidthM: z.number().positive().optional().nullable(),
   roofLengthM: z.number().positive().optional().nullable(),
+  areaSource: z.enum(["explicit", "geometric", "manual"]).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -42,13 +43,20 @@ export async function POST(req: NextRequest) {
   // The AI computes the full system sizing (not a hardcoded formula). If no
   // AI key is configured, or the AI call fails/returns something unusable,
   // fall back to the deterministic engine so the page never breaks — but the
-  // AI path is the primary one whenever a key is available. When a roof plan
-  // was uploaded, it's read as part of this same AI call (not a separate
-  // request) so submitting costs one AI call, not two.
+  // AI path is the primary one whenever a key is available. Reading a roof
+  // plan (if any) already happened in /api/assess/read-plan, and the
+  // customer confirmed the area before this request was ever sent — this
+  // call only sizes the system, it never touches the plan image.
   try {
     getActiveProvider();
-    const image = parsed.data.roofPlanUrl ? await readUploadedFile(parsed.data.roofPlanUrl) : undefined;
-    const result = await runAiAssessment(parsed.data, image);
+    const result = await runAiAssessment(parsed.data);
+    // Zod only checks shape — this independently checks the numbers are
+    // internally consistent (array size matches panel count, usable battery
+    // capacity doesn't exceed nominal, cost components sum to the total,
+    // ...). A well-formed but self-contradictory result is treated exactly
+    // like an AI failure: fall back rather than show numbers that don't add up.
+    const inconsistency = findSystemInconsistency(parsed.data, result.system);
+    if (inconsistency) throw new Error(`نتيجة الذكاء الاصطناعي غير متسقة هندسياً: ${inconsistency}`);
     return NextResponse.json(result);
   } catch (aiErr) {
     console.error("[/api/assess] AI call failed, falling back to deterministic engine:", aiErr);

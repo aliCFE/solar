@@ -26,7 +26,25 @@ const analysisSchema = z.object({
   summary: z.string(),
   strengths: z.array(z.string()),
   weaknesses: z.array(z.string()),
-  matchScorePercent: z.number(),
+  matchScorePercent: z.number().min(0).max(100),
+});
+
+// compareQuotes previously cast the AI's raw JSON straight to ComparisonResult
+// with zero validation — any malformed or out-of-range field would reach the
+// UI unchecked. Every other AI call in this project validates with Zod; this
+// closes that gap the same way.
+const comparisonSchema = z.object({
+  recommendationId: z.string(),
+  overallSummary: z.string(),
+  rankings: z.array(
+    z.object({
+      id: z.string(),
+      rank: z.number().int().positive(),
+      scoreOutOf10: z.number().min(0).max(10),
+      strengths: z.array(z.string()),
+      weaknesses: z.array(z.string()),
+    })
+  ),
 });
 
 const EXTRACTION_SYSTEM_PROMPT = `انت خبير هندسة أنظمة طاقة شمسية. تقرأ كوتيشن (عرض سعر) من شركة توريد وتركيب طاقة شمسية، وتستخرج منه بيانات دقيقة بصيغة JSON فقط بدون أي نص إضافي. اذا معلومة غير موجودة بالكوتيشن استخدم null. لا تخمن أرقام غير مذكورة صراحة أو يمكن حسابها بوضوح (مثلاً اذا مذكور عدد الألواح وقدرة كل لوح، احسب totalPanelCapacityKW).`;
@@ -64,10 +82,13 @@ export async function extractQuoteFromFile(
   "rawNotes": string
 }`;
 
+  // Same reasoning-token-budget issue as every other Kimi call in this
+  // project (confirmed repeatedly): it burns most of a small budget on
+  // internal reasoning before ever emitting the JSON.
   const text = await callAi({
     system: EXTRACTION_SYSTEM_PROMPT,
     image: { base64: fileBase64, mediaType },
-    maxTokens: 2048,
+    maxTokens: 8000,
     userText: `استخرج بيانات هذا الكوتيشن بصيغة JSON مطابقة تماماً لهذا الشكل:\n${schemaExample}`,
   });
 
@@ -81,7 +102,7 @@ export async function evaluateQuote(
 ): Promise<Omit<QuoteAnalysis, "id" | "fileName" | "extracted">> {
   const text = await callAi({
     system: "انت مستشار طاقة شمسية محايد يساعد زبون يقيّم عرض سعر مقابل احتياجه الفعلي. جاوب بصيغة JSON فقط.",
-    maxTokens: 1536,
+    maxTokens: 8000,
     userText: `${buildRequirementContext(requirement)}
 
 بيانات الكوتيشن المستخرجة:
@@ -107,7 +128,7 @@ export async function compareQuotes(
 ): Promise<ComparisonResult> {
   const text = await callAi({
     system: "انت مستشار طاقة شمسية محايد يساعد زبون يقارن بين عدة عروض أسعار ويختار الأنسب. جاوب بصيغة JSON فقط.",
-    maxTokens: 2048,
+    maxTokens: 9000,
     userText: `${buildRequirementContext(requirement)}
 
 العروض المطلوب مقارنتها:
@@ -133,5 +154,6 @@ ${JSON.stringify(
 }`,
   });
 
-  return extractJson<ComparisonResult>(text);
+  const parsed = extractJson<unknown>(text);
+  return comparisonSchema.parse(parsed);
 }

@@ -1,5 +1,6 @@
 import type { AssessmentInput, AssessmentResult, BatteryType, RoofOrientation } from "@/types";
 import { getMonthlyPeakSunHours } from "@/lib/nasaPower";
+import { findPriceAnchors, type PriceAnchor } from "@/lib/productPricing";
 
 // Sizing assumptions — documented here since they drive every downstream number.
 const SYSTEM_LOSS_FACTOR = 0.8; // wiring, inverter, dust, temperature derating
@@ -53,6 +54,18 @@ function addRanges(...ranges: [number, number][]): [number, number] {
   ];
 }
 
+// Real, source-tracked prices win over the generic global assumption below —
+// this is the one place those numbers get used. Each anchor's priceUSD is
+// for a single unit at that spec, so `quantity` is how many of that unit the
+// system needs (panel count, or 1 for a single battery/inverter). Returns
+// null when nothing relevant is on file, so the caller keeps the generic
+// range untouched.
+function priceRangeFromAnchors(anchors: PriceAnchor[], quantity: number): [number, number] | null {
+  if (anchors.length === 0) return null;
+  const totals = anchors.map((a) => a.priceUSD * quantity);
+  return [Math.round(Math.min(...totals)), Math.round(Math.max(...totals))];
+}
+
 export async function runAssessment(input: AssessmentInput): Promise<AssessmentResult> {
   const monthly = await getMonthlyPeakSunHours(input.latitude, input.longitude);
   const worstMonth = monthly.reduce((min, m) => (m.peakSunHours < min.peakSunHours ? m : min));
@@ -85,15 +98,25 @@ export async function runAssessment(input: AssessmentInput): Promise<AssessmentR
   const batteryCostRange: [number, number] =
     batteryType === "lithium" ? LITHIUM_COST_PER_KWH_USD : LEAD_ACID_COST_PER_KWH_USD;
 
-  const estimatedPanelCostUSD: [number, number] = [
+  const [panelAnchors, batteryAnchors, inverterAnchors] = await Promise.all([
+    findPriceAnchors("panel", PANEL_WATTAGE),
+    findPriceAnchors("battery", batteryCapacityKWh),
+    findPriceAnchors("inverter", inverterSizeKW),
+  ]);
+
+  const panelAnchorRange = priceRangeFromAnchors(panelAnchors, numberOfPanels);
+  const batteryAnchorRange = priceRangeFromAnchors(batteryAnchors, 1);
+  const inverterAnchorRange = priceRangeFromAnchors(inverterAnchors, 1);
+
+  const estimatedPanelCostUSD: [number, number] = panelAnchorRange ?? [
     Math.round(numberOfPanels * PANEL_WATTAGE * PANEL_COST_PER_WATT_USD[0]),
     Math.round(numberOfPanels * PANEL_WATTAGE * PANEL_COST_PER_WATT_USD[1]),
   ];
-  const estimatedBatteryCostUSD: [number, number] = [
+  const estimatedBatteryCostUSD: [number, number] = batteryAnchorRange ?? [
     Math.round(batteryCapacityKWh * batteryCostRange[0]),
     Math.round(batteryCapacityKWh * batteryCostRange[1]),
   ];
-  const estimatedInverterCostUSD: [number, number] = [
+  const estimatedInverterCostUSD: [number, number] = inverterAnchorRange ?? [
     Math.round(inverterSizeKW * INVERTER_COST_PER_KW_USD[0]),
     Math.round(inverterSizeKW * INVERTER_COST_PER_KW_USD[1]),
   ];
@@ -103,9 +126,13 @@ export async function runAssessment(input: AssessmentInput): Promise<AssessmentR
     estimatedInverterCostUSD
   );
 
+  const usedAnyAnchor = Boolean(panelAnchorRange || batteryAnchorRange || inverterAnchorRange);
   const notes: string[] = [
     `الحساب معتمد على أسوأ شهر شمسي بالسنة (${worstMonth.month}, ${worstMonth.peakSunHours} ساعة ذروة شمسية/يوم) لضمان تغطية الاستهلاك طول السنة.`,
     `يفترض الحساب لوح شمسي بقدرة ${PANEL_WATTAGE} واط وكفاءة نظام ${Math.round(SYSTEM_LOSS_FACTOR * 100)}% (خسائر الأسلاك، الحرارة، والانفيرتر).`,
+    usedAnyAnchor
+      ? `جزء من الأسعار أعلاه مبني على بيانات سعرية مسجلة بالنظام (مصدر وتاريخ موثقين)، والباقي تقدير عام تقريبي.`
+      : `كل الأسعار أعلاه تقدير عام تقريبي — ما فيه بيانات سعرية عراقية موثقة مسجلة بالنظام قريبة من هذا الحجم بعد.`,
   ];
   if (!roofAreaSufficient) {
     notes.push(
@@ -120,12 +147,6 @@ export async function runAssessment(input: AssessmentInput): Promise<AssessmentR
       `اتجاه السطح (${ORIENTATION_LABELS_AR[input.roofOrientation]}) يقلل الإنتاج عن الاتجاه الجنوبي الأمثل بنسبة ${Math.round((1 - orientationFactor) * 100)}%، فتمت زيادة عدد الألواح لتعويض الفرق.`
     );
   }
-  if (input.roofPlanUrl) {
-    notes.push(
-      `تنويه: هذا المحرك الاحتياطي ما يقرأ صور — استخدمنا المساحة الاحتياطية (${input.homeAreaSqm} م²) يلي أدخلتها يدوياً، مو الخارطة المرفوعة.`
-    );
-  }
-
   return {
     input,
     irradiance: { monthly, worstMonth, averagePeakSunHours: Number(averagePeakSunHours.toFixed(2)) },
@@ -146,7 +167,7 @@ export async function runAssessment(input: AssessmentInput): Promise<AssessmentR
       estimatedInverterCostUSD,
       estimatedTotalCostUSD,
       orientationFactor,
-      areaSource: "manual",
+      areaSource: input.areaSource ?? "manual",
       notes,
     },
   };

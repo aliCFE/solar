@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(analysis);
   } catch (err) {
+    console.error("[/api/analyze-quote] failed:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "فشل تحليل الكوتيشن" },
       { status: 500 }

@@ -133,6 +133,27 @@ export interface AssessmentInput {
   roofPlanUrl?: string | null;
   roofWidthM?: number | null;
   roofLengthM?: number | null;
+  /** How the area in homeAreaSqm was arrived at — set once by the plan-reading
+   *  step and carried through as-is; the sizing step never re-derives it. */
+  areaSource?: "explicit" | "geometric" | "manual";
+}
+
+/** Result of reading a roof-plan image, kept separate from system sizing so a
+ *  bad read never silently corrupts the sizing calculation — the customer
+ *  reviews/edits the area before it's used for anything. */
+export interface RoofPlanReading {
+  readSuccess: boolean;
+  explicitAreaSqm: number | null;
+  outerWidthM: number | null;
+  outerLengthM: number | null;
+  unit: string | null;
+  floors: number | null;
+  shapeRegular: boolean | null;
+  summaryAr: string;
+  resolvedAreaSqm: number | null;
+  areaSource: "explicit" | "geometric" | "uncertain";
+  needsUserConfirmation: boolean;
+  confirmationMessageAr: string;
 }
 
 export interface MonthlyIrradiance {
@@ -164,7 +185,7 @@ export interface AssessmentResult {
     estimatedInverterCostUSD: [number, number];
     estimatedTotalCostUSD: [number, number];
     orientationFactor: number;
-    areaSource: "plan" | "manual";
+    areaSource: "explicit" | "geometric" | "manual";
     notes: string[];
   };
 }

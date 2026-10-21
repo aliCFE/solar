@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { IRAQ_CITY_PRESETS } from "@/lib/cities";
-import type { AssessmentInput, AssessmentResult, BatteryType, RoofOrientation } from "@/types";
+import type { AssessmentInput, AssessmentResult, BatteryType, RoofOrientation, RoofPlanReading } from "@/types";
 import UploadProgressBar from "@/components/UploadProgressBar";
 
 interface Props {
@@ -42,26 +42,22 @@ export default function AssessmentForm({ onSubmit, isLoading, result }: Props) {
   const [uploadingPlan, setUploadingPlan] = useState(false);
   const [uploadPercent, setUploadPercent] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [areaUpdatedFromPlan, setAreaUpdatedFromPlan] = useState(false);
+  const [planReading, setPlanReading] = useState<RoofPlanReading | null>(null);
+  const [analyzingPlan, setAnalyzingPlan] = useState(false);
+  const [planReadError, setPlanReadError] = useState<string | null>(null);
+  const [areaIsManualOverride, setAreaIsManualOverride] = useState(false);
 
-  // After a result comes back, reflect the area the calculation actually
-  // used — if a plan was read, that's the real measured figure, not the
-  // fallback number the field held before submitting.
-  useEffect(() => {
-    if (!result) return;
-    const resolved = result.input.homeAreaSqm;
-    setHomeAreaSqm((current) => (Number(current) === resolved ? current : String(resolved)));
-    setAreaUpdatedFromPlan(result.system.areaSource === "plan");
-  }, [result]);
-
-  // Uploading only stores the file — it's read by the AI as part of the one
-  // "احسب احتياجي" call below, not as a separate request right here. That
-  // keeps this step fast (plain file I/O) and means submitting costs one AI
-  // call whether or not a plan was attached, not two.
+  // Uploading stores the file, then the plan is read right away in its own
+  // dedicated call — separate from system sizing — so the customer sees and
+  // can correct the extracted area BEFORE it ever reaches the sizing
+  // calculation. A bad vision read this way shows up as "please confirm",
+  // never as a silently wrong system size.
   async function handleRoofPlanUpload(file: File | undefined) {
     if (!file) return;
     setError(null);
-    setAreaUpdatedFromPlan(false);
+    setPlanReading(null);
+    setPlanReadError(null);
+    setAreaIsManualOverride(false);
     setUploadingPlan(true);
     setUploadPercent(8);
 
@@ -79,13 +75,33 @@ export default function AssessmentForm({ onSubmit, isLoading, result }: Props) {
       setRoofPlanUrl(data.url);
       setRoofPlanFileName(file.name);
       setUploadPercent(100);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل رفع المخطط");
-      setUploadPercent(0);
-    } finally {
       clearInterval(tick);
       setUploadingPlan(false);
       setTimeout(() => setUploadPercent(0), 500);
+
+      setAnalyzingPlan(true);
+      try {
+        const readRes = await fetch("/api/assess/read-plan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roofPlanUrl: data.url }),
+        });
+        const reading = await readRes.json();
+        if (!readRes.ok) throw new Error(reading.error || "فشلت قراءة الخارطة");
+        setPlanReading(reading as RoofPlanReading);
+        if (reading.resolvedAreaSqm != null) {
+          setHomeAreaSqm(String(reading.resolvedAreaSqm));
+        }
+      } catch (err) {
+        setPlanReadError(err instanceof Error ? err.message : "فشلت قراءة الخارطة");
+      } finally {
+        setAnalyzingPlan(false);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "فشل رفع المخطط");
+      setUploadPercent(0);
+      clearInterval(tick);
+      setUploadingPlan(false);
     }
   }
 
@@ -138,6 +154,12 @@ export default function AssessmentForm({ onSubmit, isLoading, result }: Props) {
       locationLabel = city.label;
     }
 
+    // Only trust the plan-derived source/dimensions when the area field still
+    // matches what the plan reading resolved — if the customer typed over it,
+    // this is a manual number and must not be reported as plan-confirmed.
+    const usingPlanReading =
+      !areaIsManualOverride && planReading != null && planReading.resolvedAreaSqm === area;
+
     onSubmit({
       homeAreaSqm: area,
       monthlyConsumptionKWh: consumption,
@@ -148,6 +170,9 @@ export default function AssessmentForm({ onSubmit, isLoading, result }: Props) {
       preferredBatteryType,
       roofOrientation,
       roofPlanUrl,
+      roofWidthM: usingPlanReading ? planReading.outerWidthM : null,
+      roofLengthM: usingPlanReading ? planReading.outerLengthM : null,
+      areaSource: usingPlanReading ? (planReading.areaSource as "explicit" | "geometric") : "manual",
     });
   }
 
@@ -207,7 +232,7 @@ export default function AssessmentForm({ onSubmit, isLoading, result }: Props) {
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className={labelClass}>مساحة السطح الاحتياطية (م²)</label>
+          <label className={labelClass}>مساحة السطح (م²)</label>
           <input
             type="number"
             min={1}
@@ -215,17 +240,16 @@ export default function AssessmentForm({ onSubmit, isLoading, result }: Props) {
             value={homeAreaSqm}
             onChange={(e) => {
               setHomeAreaSqm(e.target.value);
-              setAreaUpdatedFromPlan(false);
+              setAreaIsManualOverride(true);
             }}
           />
-          {areaUpdatedFromPlan ? (
-            <p className="mt-1 text-xs text-[var(--color-accent-2)]">
-              ✓ اتحدّثت تلقائياً من الخارطة — هذا الرقم يلي استُخدم فعلياً بالحساب
-            </p>
-          ) : (
+          {!planReading && !analyzingPlan && !areaIsManualOverride && (
             <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-              تُستخدم بس لو ما رفعت خارطة، أو الخارطة غير واضحة — لو رفعت خارطة، تنقرا وتحسب وقت تضغط "احسب احتياجي" بالأسفل
+              رقم تقريبي — لدقة أعلى ارفع خارطة البيت بالحقل المقابل
             </p>
+          )}
+          {areaIsManualOverride && (
+            <p className="mt-1 text-xs text-[var(--color-text-muted)]">عدّلتها يدوياً — هذا الرقم يلي راح يُستخدم بالحساب</p>
           )}
         </div>
         <div>
@@ -259,24 +283,47 @@ export default function AssessmentForm({ onSubmit, isLoading, result }: Props) {
           <label className={labelClass}>خارطة/مخطط البيت (اختياري، يحسن الدقة)</label>
           <input
             type="file"
-            accept="image/jpeg,image/png,image/webp,application/pdf"
+            accept="image/jpeg,image/png,image/webp"
             onChange={(e) => handleRoofPlanUpload(e.target.files?.[0])}
-            disabled={uploadingPlan}
+            disabled={uploadingPlan || analyzingPlan}
             className="block w-full text-sm text-[var(--color-text-muted)] file:ml-3 file:rounded-lg file:border-0 file:bg-[var(--color-surface-2)] file:px-3 file:py-2 file:text-[var(--color-text)]"
           />
           {uploadPercent > 0 && <UploadProgressBar percent={uploadPercent} label="جاري رفع الخارطة..." />}
-          {roofPlanFileName && !uploadingPlan && uploadPercent === 0 && (
-            <p className="mt-1 text-xs text-[var(--color-accent-2)]">
-              ✓ تم رفع: {roofPlanFileName} — راح تنقرا تلقائياً وقت تضغط "احسب احتياجي" بالأسفل
-            </p>
-          )}
-          {!roofPlanFileName && (
+          {analyzingPlan && <UploadProgressBar percent={60} label="جاري قراءة الخارطة..." />}
+          {!roofPlanFileName && !analyzingPlan && (
             <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-              نقرأ الأبعاد المكتوبة على الخارطة تلقائياً وقت الحساب لتقدير مساحة السطح، وتترافق مع أي طلب عرض ترسله لشركة
+              نقرأ الأبعاد المكتوبة على الخارطة فور الرفع، وتقدر تراجع المساحة وتعدّلها قبل الحساب
             </p>
           )}
         </div>
       </div>
+
+      {planReadError && !analyzingPlan && (
+        <p className="rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 p-3 text-xs text-[var(--color-danger)]">
+          {planReadError} — أدخل مساحة السطح يدوياً بالحقل أعلاه.
+        </p>
+      )}
+
+      {planReading && !analyzingPlan && !areaIsManualOverride && (
+        <div
+          className={`rounded-lg border p-3 text-xs ${
+            planReading.needsUserConfirmation
+              ? "border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 text-[var(--color-accent)]"
+              : "border-[var(--color-accent-2)]/40 bg-[var(--color-accent-2)]/10 text-[var(--color-accent-2)]"
+          }`}
+        >
+          <div className="font-semibold">
+            {planReading.areaSource === "explicit" && "✓ مساحة مقروءة صراحة من الخارطة"}
+            {planReading.areaSource === "geometric" && "✓ مساحة محسوبة هندسياً من الأبعاد المقروءة"}
+            {planReading.areaSource === "uncertain" && "⚠️ ما نقدر نأكد المساحة من هذي الخارطة"}
+          </div>
+          <p className="mt-1">{planReading.confirmationMessageAr}</p>
+          <p className="mt-1 text-[var(--color-text-muted)]">{planReading.summaryAr}</p>
+          {!planReading.needsUserConfirmation && (
+            <p className="mt-1 text-[var(--color-text-muted)]">راجع رقم المساحة أعلاه وعدّله إذا تحتاج قبل الحساب.</p>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-4">
         <div>
